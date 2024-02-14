@@ -17,82 +17,95 @@ app.get("/community", (req, res) => {
 // implement endpoint to create a subredit/community
 app.post("/community", async (req, res) => {
   const insertResult = await db.collection("community").insertMany([req.body]);
-  res.status(200).json(dbNAme);
+  res.status(201).json(dbNAme);
   console.log("Inserted documents =>", insertResult);
 });
 
-/*
 // implement endpoint to create a post (in a subredit)
-app.post("/community/:communityName/posts", (req, res) => {
+app.post("/community/:communityName/posts", async (req, res) => {
   const { communityName } = req.params;
   const { title, content } = req.body;
   if (title && content) {
-    if (community[communityName]) {
-      const postId = Object.keys(posts).length + 1;
-      const post = { id: postId, title, content };
-      posts[postId] = post;
-      community[communityName].posts.push(post);
-      res.status(201).json({ message: "Post created sucessfully" });
-    } else {
-      res.status(404).json({ error: "Community not found" });
+    try {
+      const community = await db
+        .collection("community")
+        .findOne({ title: communityName });
+
+      if (community) {
+        const post = { title, content };
+
+        const insertResult = await db.collection("posts").insertOne(post);
+
+        await db
+          .collection("community")
+          .updateOne(
+            { title: communityName },
+            { $push: { posts: insertResult.insertedId } }
+          );
+
+        res.status(201).json({ message: "Post created sucessfully " });
+      } else {
+        res.status(404).json({ error: "Community not found" });
+      }
+    } catch (error) {
+      console.log("Error creating post:", error);
+      res.status(500).json({ error: "internal server error" });
     }
   }
 });
 
 // implement endpoint to list a subredit's posts
 
-app.get("/community/:communityName/posts", (req, res) => {
+app.get("/community/:communityName/posts", async (req, res) => {
   const { communityName } = req.params;
 
-  if (community[communityName]) {
-    const communityPosts = community[communityName].posts;
-    res.status(200).json(communityPosts);
-  } else {
-    res.status(404).json({ error: "Community not found" });
-  }
-});
+  try {
+    const community = await db
+      .collection("community")
+      .findOne({ title: communityName });
 
-// implement endpoint to get the comments for a post
+    if (community) {
+      const postIds = community.posts;
 
-app.get("/community/:communityName/posts/:postId/comments", (req, res) => {
-  const { communityName, postId } = req.params;
-
-  if (community[communityName]) {
-    const communityPosts = community[communityName].posts;
-    const post = communityPosts.find((post) => post.id === parseInt(postId));
-
-    if (post) {
-      const comments = post.comments || [];
-      res.status(200).json(comments);
+      const posts = await db
+        .collection("posts")
+        .find({ _id: { $in: postIds } })
+        .toArray();
+      res.status(200).json(posts);
     } else {
-      res.status(404).json({ error: "Post not found" });
+      res.status(404).json({ error: "community not found " });
     }
+  } catch (error) {
+    console.log("error fetching community posts");
+    res.status(500).json({ error: "internal server error" });
   }
 });
 
 // implement endpoint to edit a post
-
-app.put("/community/:communityName/posts/:postId", (req, res) => {
+app.put("/community/:communityName/posts/:postId", async (req, res) => {
   const { communityName, postId } = req.params;
   const { title, content } = req.body;
 
-  if (community[communityName]) {
-    const communityPosts = community[communityName].posts;
-    const postIndex = communityPosts.findIndex(
-      (post) => post.id === parseInt(postId)
-    );
+  try {
+    const community = await db
+      .collection("community")
+      .findOne({ title: communityName });
 
-    if (postIndex !== -1) {
-      communityPosts[postIndex].title = title;
-      communityPosts[postIndex].content = content;
-      res.status(200).json({ message: "Post updated sucessfully" });
+    // mudar esta parte, não atualiza o post
+    if (postId !== -1) {
+      await db
+        .collection("posts")
+        .updateOne({ _id: postId }, { $set: { title, content } });
+
+      res.status(200).json({ message: "post update sucessfully" });
     } else {
-      res.status(404).json({ error: "Post not found" });
+      res.status(404).json({ error: "post not found" });
     }
+  } catch (error) {
+    console.log("Error updating post:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
-
-*/
 
 async function start(app) {
   await client.connect();
@@ -102,15 +115,6 @@ async function start(app) {
   app.listen(process.env.PORT, () => {
     console.log("server is running (express)");
   });
-
-  /* implement endpoint to create a subredit/community
-  const insertResult = await collection.insertMany([
-    { a: "Back-End Forum" },
-    { a: "React Forum" },
-    { a: "JS Forum" },
-  ]);
-  console.log("Inserted documents =>", insertResult);
-*/
 }
 
 start(app)
